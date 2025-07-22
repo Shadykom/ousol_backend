@@ -4,3 +4,4 @@
 {"ip":"::1","level":"info","message":"GET /health","service":"osoul-reporting-api","timestamp":"2025-07-22 08:51:31","userAgent":"curl/8.12.1"}
 {"level":"info","message":"Server running on port 5000","service":"osoul-reporting-api","timestamp":"2025-07-22 09:19:14"}
 {"level":"info","message":"Server running on port 5000","service":"osoul-reporting-api","timestamp":"2025-07-22 09:34:19"}
+{"level":"info","message":"Server running on port 5000","service":"osoul-reporting-api","timestamp":"2025-07-22 14:05:07"}
