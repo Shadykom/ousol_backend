@@ -1,8 +1,8 @@
-import express from 'express';
-import cors from 'cors';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
-import { createClient } from '@supabase/supabase-js';
+const express = require('express');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -802,13 +802,15 @@ app.use('*', (req, res) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Osoul Collection API server running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Supabase URL: ${SUPABASE_URL}`);
-  console.log(`🌐 CORS: Universal (all origins allowed)`);
-});
+// Start server only if not running in Vercel
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Osoul Collection API server running on port ${PORT}`);
+    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 Supabase URL: ${SUPABASE_URL}`);
+    console.log(`🌐 CORS: Universal (all origins allowed)`);
+  });
+}
 
-export default app;
+module.exports = app;
 
