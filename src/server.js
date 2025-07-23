@@ -1,8 +1,8 @@
-const express = require('express');
-const cors = require('cors');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const { createClient } = require('@supabase/supabase-js');
+import express from 'express';
+import cors from 'cors';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import { createClient } from '@supabase/supabase-js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -18,26 +18,39 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // Middleware
 app.use(express.json());
 
-// Universal CORS - accepts all origins
+// UNIVERSAL CORS - Accept ALL origins, ALL methods, ALL headers
 app.use(cors({
-  origin: true, // Accept all origins
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  origin: '*', // Accept ALL origins
+  credentials: false, // Set to false for universal access
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+  allowedHeaders: ['*'], // Accept ALL headers
+  exposedHeaders: ['*'],
+  maxAge: 86400 // Cache preflight for 24 hours
 }));
 
-// Handle preflight requests
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.sendStatus(200);
+// Additional CORS headers for maximum compatibility
+app.use((req, res, next) => {
+  // Set CORS headers for ALL requests
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
+  res.header('Access-Control-Allow-Headers', '*');
+  res.header('Access-Control-Expose-Headers', '*');
+  res.header('Access-Control-Max-Age', '86400');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+  
+  next();
 });
 
-// Add request origin to all responses
+// Add request tracking
 app.use((req, res, next) => {
-  res.locals.requestOrigin = req.headers.origin || 'unknown';
+  const origin = req.headers.origin || req.headers.referer || 'unknown';
+  console.log(`🌐 Request from: ${origin} → ${req.method} ${req.path}`);
+  res.locals.requestOrigin = origin;
   next();
 });
 
@@ -64,26 +77,28 @@ app.get('/', (req, res) => {
     message: 'Osoul Collection Reporting API',
     version: '1.0.0',
     status: 'running',
+    corsPolicy: 'UNIVERSAL - All origins accepted',
+    requestOrigin: res.locals.requestOrigin,
     endpoints: {
       health: '/health',
       login: '/api/v1/auth/login',
       legacyLogin: '/auth/login',
       collectionReports: '/api/v1/collection/reports/daily',
-      collectionAccounts: '/api/v1/collection/accounts'
-    },
-    requestOrigin: res.locals.requestOrigin,
-    corsPolicy: 'Universal - All origins allowed'
+      collectionAccounts: '/api/v1/collection/accounts',
+      testDb: '/api/v1/test-db'
+    }
   });
 });
 
-// Health check endpoint
+// Health check endpoint - CRITICAL for frontend connection testing
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    corsPolicy: 'UNIVERSAL - All origins accepted',
     requestOrigin: res.locals.requestOrigin,
-    corsPolicy: 'Universal - All origins allowed'
+    message: 'Backend is running and accessible from any frontend'
   });
 });
 
@@ -111,7 +126,8 @@ app.get('/api/v1/test-db', async (req, res) => {
       message: 'Database connection successful',
       userCount: count,
       sample: data?.[0] || null,
-      requestOrigin: res.locals.requestOrigin
+      requestOrigin: res.locals.requestOrigin,
+      corsPolicy: 'UNIVERSAL - All origins accepted'
     });
   } catch (error) {
     res.status(500).json({
@@ -140,7 +156,8 @@ app.get('/api/v1/debug/users', async (req, res) => {
     res.json({
       users: data,
       count: data?.length || 0,
-      requestOrigin: res.locals.requestOrigin
+      requestOrigin: res.locals.requestOrigin,
+      corsPolicy: 'UNIVERSAL - All origins accepted'
     });
   } catch (error) {
     res.status(500).json({
@@ -295,7 +312,8 @@ app.post('/api/v1/auth/login', async (req, res) => {
         isActive: user.is_active
       },
       token,
-      requestOrigin: res.locals.requestOrigin
+      requestOrigin: res.locals.requestOrigin,
+      corsPolicy: 'UNIVERSAL - All origins accepted'
     });
 
   } catch (error) {
@@ -340,7 +358,8 @@ app.get('/api/v1/auth/me', authenticateToken, async (req, res) => {
         role: user.role,
         isActive: user.is_active
       },
-      requestOrigin: res.locals.requestOrigin
+      requestOrigin: res.locals.requestOrigin,
+      corsPolicy: 'UNIVERSAL - All origins accepted'
     });
   } catch (error) {
     res.status(500).json({
@@ -496,14 +515,16 @@ app.get('/api/v1/collection/reports/daily', authenticateToken, async (req, res) 
     res.json({
       success: true,
       data: report,
-      message: `Daily collection report for ${targetDate}`
+      message: `Daily collection report for ${targetDate}`,
+      requestOrigin: res.locals.requestOrigin
     });
 
   } catch (error) {
     console.error('❌ Error generating daily report:', error);
     res.status(500).json({
       error: 'Internal server error',
-      message: error.message
+      message: error.message,
+      requestOrigin: res.locals.requestOrigin
     });
   }
 });
@@ -665,14 +686,16 @@ app.get('/api/v1/collection/accounts', authenticateToken, async (req, res) => {
           statusCounts
         }
       },
-      message: `Retrieved ${accounts.length} collection accounts`
+      message: `Retrieved ${accounts.length} collection accounts`,
+      requestOrigin: res.locals.requestOrigin
     });
 
   } catch (error) {
     console.error('❌ Error fetching collection accounts:', error);
     res.status(500).json({
       error: 'Internal server error',
-      message: error.message
+      message: error.message,
+      requestOrigin: res.locals.requestOrigin
     });
   }
 });
@@ -761,14 +784,16 @@ app.get('/api/v1/collection/accounts/:id', authenticateToken, async (req, res) =
     res.json({
       success: true,
       data: accountDetails,
-      message: 'Account details retrieved successfully'
+      message: 'Account details retrieved successfully',
+      requestOrigin: res.locals.requestOrigin
     });
 
   } catch (error) {
     console.error('❌ Error fetching account details:', error);
     res.status(500).json({
       error: 'Internal server error',
-      message: error.message
+      message: error.message,
+      requestOrigin: res.locals.requestOrigin
     });
   }
 });
@@ -798,19 +823,18 @@ app.use('*', (req, res) => {
       collectionAccounts: '/api/v1/collection/accounts',
       testDb: '/api/v1/test-db'
     },
-    requestOrigin: res.locals.requestOrigin
+    requestOrigin: res.locals.requestOrigin,
+    corsPolicy: 'UNIVERSAL - All origins accepted'
   });
 });
 
-// Start server only if not running in Vercel
-if (!process.env.VERCEL) {
-  app.listen(PORT, () => {
-    console.log(`🚀 Osoul Collection API server running on port ${PORT}`);
-    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 Supabase URL: ${SUPABASE_URL}`);
-    console.log(`🌐 CORS: Universal (all origins allowed)`);
-  });
-}
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Osoul Collection API server running on port ${PORT}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔗 Supabase URL: ${SUPABASE_URL}`);
+  console.log(`🌐 CORS: UNIVERSAL - All origins accepted`);
+});
 
-module.exports = app;
+export default app;
 
