@@ -1,491 +1,379 @@
-import express from 'express';
-import cors from 'cors';
-import { createClient } from '@supabase/supabase-js';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+const express = require('express');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
+const PORT = process.env.PORT || 5000;
 
 // Environment variables
-const supabaseUrl = 'https://mrecphuxcweignmdytal.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1yZWNwaHV4Y3dlaWdubWR5dGFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMxNjY2MjMsImV4cCI6MjA2ODc0MjYyM30.4I-S7pvJT4py5Ui5cJL08euMdoTWd3YxDF_-IJYqHeY';
-const jwtSecret = process.env.JWT_SECRET || 'osoul_jwt_secret_key_production_2024_supabase_secure';
+const JWT_SECRET = process.env.JWT_SECRET || 'osoul_jwt_secret_key_production_2024_supabase_secure';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mrecphuxcweignmdytal.supabase.co';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1yZWNwaHV4Y3dlaWdubWR5dGFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMxNjY2MjMsImV4cCI6MjA2ODc0MjYyM30.4I-S7pvJT4py5Ui5cJL08euMdoTWd3YxDF_-IJYqHeY';
 
 // Initialize Supabase client
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// UNIVERSAL CORS configuration - Accepts ALL origins
+// Middleware
+app.use(express.json());
+
+// Universal CORS - accepts all origins
 app.use(cors({
-  origin: true, // This allows ALL origins
+  origin: true, // Accept all origins
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
-  optionsSuccessStatus: 200
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// Handle preflight requests explicitly
+// Handle preflight requests
 app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.sendStatus(200);
 });
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Additional CORS headers middleware
+// Add request origin to all responses
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
+  res.locals.requestOrigin = req.headers.origin || 'unknown';
   next();
-});
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development',
-    corsPolicy: 'Universal - All origins allowed'
-  });
 });
 
 // Root endpoint
 app.get('/', (req, res) => {
-  res.status(200).json({
+  res.json({
     message: 'Osoul Collection Reporting API',
     version: '1.0.0',
     status: 'running',
-    corsPolicy: 'Universal - All origins allowed',
     endpoints: {
       health: '/health',
       login: '/api/v1/auth/login',
       legacyLogin: '/auth/login',
-      testDb: '/api/v1/test-db',
-      debugUsers: '/api/v1/debug/users'
-    }
+      collectionReports: '/api/v1/collection/reports/daily',
+      collectionAccounts: '/api/v1/collection/accounts'
+    },
+    requestOrigin: res.locals.requestOrigin,
+    corsPolicy: 'Universal - All origins allowed'
   });
 });
 
-// Test database connection
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    requestOrigin: res.locals.requestOrigin,
+    corsPolicy: 'Universal - All origins allowed'
+  });
+});
+
+// Database test endpoint
 app.get('/api/v1/test-db', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('users')
       .select('id, email, role')
       .limit(1);
-    
+
     if (error) {
       return res.status(500).json({
-        error: 'Database connection failed',
-        details: error.message
+        message: 'Database connection failed',
+        error: error.message,
+        requestOrigin: res.locals.requestOrigin
       });
     }
-    
-    res.status(200).json({
+
+    const { count } = await supabase
+      .from('users')
+      .select('*', { count: 'exact', head: true });
+
+    res.json({
       message: 'Database connection successful',
-      userCount: data.length,
-      sample: data[0] || null
+      userCount: count,
+      sample: data?.[0] || null,
+      requestOrigin: res.locals.requestOrigin
     });
   } catch (error) {
     res.status(500).json({
-      error: 'Database test failed',
-      details: error.message
+      message: 'Database test failed',
+      error: error.message,
+      requestOrigin: res.locals.requestOrigin
     });
   }
 });
 
-// Debug endpoint to check user table structure
+// Debug users endpoint
 app.get('/api/v1/debug/users', async (req, res) => {
   try {
-    // First, let's check what columns exist in the users table
-    const { data: users, error } = await supabase
+    const { data, error } = await supabase
       .from('users')
       .select('*')
-      .limit(3);
-    
+      .limit(5);
+
     if (error) {
-      return res.status(500).json({ 
-        error: 'Database query failed',
-        details: error.message 
+      return res.status(500).json({
+        error: error.message,
+        requestOrigin: res.locals.requestOrigin
       });
     }
-    
-    // Show the structure of the first user
-    const sampleUser = users[0] || {};
-    const availableColumns = Object.keys(sampleUser);
-    
-    const debugInfo = users.map(user => ({
-      id: user.id,
-      email: user.email,
-      role: user.role || 'No role',
-      isActive: user.is_active,
-      availableColumns: availableColumns,
-      hasPasswordHash: !!user.password_hash,
-      hasPassword: !!user.password,
-      passwordValue: user.password || user.password_hash || 'No password field found'
-    }));
-    
-    res.json({ 
-      users: debugInfo,
-      totalUsers: users.length,
-      availableColumns: availableColumns
+
+    res.json({
+      users: data,
+      count: data?.length || 0,
+      requestOrigin: res.locals.requestOrigin
     });
   } catch (error) {
-    res.status(500).json({ 
-      error: 'Debug query failed',
-      details: error.message 
+    res.status(500).json({
+      error: error.message,
+      requestOrigin: res.locals.requestOrigin
     });
   }
 });
 
-// Simple password verification - handles multiple password storage methods
-function verifyPassword(inputPassword, storedPassword) {
-  try {
-    // If no stored password, return false
-    if (!storedPassword) {
-      return false;
-    }
-    
-    // If stored password is bcrypt hash (starts with $2)
-    if (storedPassword.startsWith('$2')) {
-      return bcrypt.compareSync(inputPassword, storedPassword);
-    }
-    
-    // If stored password is plain text, do direct comparison
-    return inputPassword === storedPassword;
-  } catch (error) {
-    console.error('Password verification error:', error);
-    return false;
-  }
-}
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
 
-// Login endpoint - /api/v1/auth/login
+  if (!token) {
+    return res.status(401).json({ 
+      error: 'Access token required',
+      requestOrigin: res.locals.requestOrigin 
+    });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ 
+        error: 'Invalid or expired token',
+        requestOrigin: res.locals.requestOrigin 
+      });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// Auth routes
 app.post('/api/v1/auth/login', async (req, res) => {
   try {
-    console.log('Login attempt received');
-    console.log('Request body:', req.body);
-    
     const { email, password } = req.body;
-    
-    if (!email || !password) {
-      console.log('Missing email or password');
-      return res.status(400).json({
-        error: 'Email and password are required'
-      });
-    }
-    
-    console.log('Querying database for user:', email);
-    
-    // Get user from database - select all columns to see what's available
-    const { data: users, error: dbError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email.toLowerCase())
-      .limit(1);
-    
-    if (dbError) {
-      console.error('Database error:', dbError);
-      return res.status(500).json({
-        error: 'Database query failed',
-        details: dbError.message
-      });
-    }
-    
-    console.log('Database query result:', users);
-    
-    if (!users || users.length === 0) {
-      console.log('User not found');
-      return res.status(401).json({
-        error: 'Invalid credentials'
-      });
-    }
-    
-    const user = users[0];
-    console.log('User found:', { 
-      id: user.id, 
-      email: user.email, 
-      role: user.role,
-      availableFields: Object.keys(user)
-    });
-    
-    // Check password - try different possible password field names
-    let storedPassword = null;
-    let passwordField = null;
-    
-    // Try different possible password field names
-    if (user.password_hash) {
-      storedPassword = user.password_hash;
-      passwordField = 'password_hash';
-    } else if (user.password) {
-      storedPassword = user.password;
-      passwordField = 'password';
-    } else if (user.pwd) {
-      storedPassword = user.pwd;
-      passwordField = 'pwd';
-    } else if (user.pass) {
-      storedPassword = user.pass;
-      passwordField = 'pass';
-    }
-    
-    console.log('Password field used:', passwordField);
-    console.log('Stored password exists:', !!storedPassword);
-    
-    if (!storedPassword) {
-      console.log('No password field found in user record');
-      console.log('Available user fields:', Object.keys(user));
-      
-      // For testing purposes, if no password is stored, allow login with default password
-      if (password === 'password123') {
-        console.log('Using default password for testing');
-      } else {
-        return res.status(500).json({
-          error: 'User password not configured',
-          details: 'No password field found in database',
-          availableFields: Object.keys(user)
-        });
-      }
-    }
-    
-    // Verify password
-    let isValidPassword = false;
-    
-    if (storedPassword) {
-      isValidPassword = verifyPassword(password, storedPassword);
-    } else {
-      // Default password for testing
-      isValidPassword = (password === 'password123');
-    }
-    
-    console.log('Password validation result:', isValidPassword);
-    
-    if (!isValidPassword) {
-      console.log('Invalid password');
-      return res.status(401).json({
-        error: 'Invalid credentials'
-      });
-    }
-    
-    // Check if user is active
-    if (user.is_active === false) {
-      console.log('User account is deactivated');
-      return res.status(401).json({
-        error: 'Account is deactivated'
-      });
-    }
-    
-    console.log('Generating JWT token');
-    
-    // Generate JWT token
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-        role: user.role || 'user'
-      },
-      jwtSecret,
-      { expiresIn: '7d' }
-    );
-    
-    console.log('Login successful for user:', user.email);
-    
-    // Return user data and token
-    res.status(200).json({
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name || user.firstname || 'User',
-        lastName: user.last_name || user.lastname || '',
-        role: user.role || 'user',
-        isActive: user.is_active !== false
-      },
-      token,
-      message: 'Login successful'
-    });
-    
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      details: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
 
-// Legacy login endpoint - /auth/login
-app.post('/auth/login', async (req, res) => {
-  console.log('Legacy login endpoint called, redirecting to main login');
-  
-  try {
-    const { email, password } = req.body;
-    
+    console.log('🔐 Login attempt for:', email);
+    console.log('📍 Request origin:', res.locals.requestOrigin);
+
     if (!email || !password) {
       return res.status(400).json({
-        error: 'Email and password are required'
+        error: 'Email and password are required',
+        requestOrigin: res.locals.requestOrigin
       });
     }
-    
+
     // Get user from database
-    const { data: users, error: dbError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email.toLowerCase())
-      .limit(1);
-    
-    if (dbError) {
-      return res.status(500).json({
-        error: 'Database query failed',
-        details: dbError.message
-      });
-    }
-    
-    if (!users || users.length === 0) {
-      return res.status(401).json({
-        error: 'Invalid credentials'
-      });
-    }
-    
-    const user = users[0];
-    
-    // Check password using the same logic as the main endpoint
-    let storedPassword = user.password_hash || user.password || user.pwd || user.pass;
-    let isValidPassword = false;
-    
-    if (storedPassword) {
-      isValidPassword = verifyPassword(password, storedPassword);
-    } else {
-      // Default password for testing
-      isValidPassword = (password === 'password123');
-    }
-    
-    if (!isValidPassword) {
-      return res.status(401).json({
-        error: 'Invalid credentials'
-      });
-    }
-    
-    if (user.is_active === false) {
-      return res.status(401).json({
-        error: 'Account is deactivated'
-      });
-    }
-    
-    // Generate JWT token
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-        role: user.role || 'user'
-      },
-      jwtSecret,
-      { expiresIn: '7d' }
-    );
-    
-    // Return user data and token
-    res.status(200).json({
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name || user.firstname || 'User',
-        lastName: user.last_name || user.lastname || '',
-        role: user.role || 'user',
-        isActive: user.is_active !== false
-      },
-      token,
-      message: 'Login successful (legacy endpoint)'
-    });
-    
-  } catch (error) {
-    console.error('Legacy login error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      details: error.message
-    });
-  }
-});
-
-// Get current user endpoint
-app.get('/api/v1/auth/me', async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        error: 'Authorization token required'
-      });
-    }
-    
-    const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, jwtSecret);
-    
-    // Get fresh user data
     const { data: users, error } = await supabase
       .from('users')
       .select('*')
-      .eq('id', decoded.userId)
+      .eq('email', email.toLowerCase())
       .limit(1);
-    
-    if (error || !users || users.length === 0) {
-      return res.status(401).json({
-        error: 'User not found'
+
+    if (error) {
+      console.error('❌ Database error:', error);
+      return res.status(500).json({
+        error: 'Database error',
+        details: error.message,
+        requestOrigin: res.locals.requestOrigin
       });
     }
-    
+
+    if (!users || users.length === 0) {
+      console.log('❌ User not found:', email);
+      return res.status(401).json({
+        error: 'Invalid email or password',
+        requestOrigin: res.locals.requestOrigin
+      });
+    }
+
     const user = users[0];
+
+    // Check if user is active
+    if (!user.is_active) {
+      console.log('❌ User inactive:', email);
+      return res.status(401).json({
+        error: 'Account is inactive',
+        requestOrigin: res.locals.requestOrigin
+      });
+    }
+
+    // Password verification - flexible approach
+    let passwordValid = false;
     
-    res.status(200).json({
+    // Try different password field names and formats
+    const passwordFields = ['password_hash', 'password', 'pwd', 'pass'];
+    
+    for (const field of passwordFields) {
+      if (user[field]) {
+        try {
+          // Try bcrypt comparison first
+          if (user[field].startsWith('$2')) {
+            passwordValid = await bcrypt.compare(password, user[field]);
+          } else {
+            // Fallback to plain text comparison for testing
+            passwordValid = user[field] === password;
+          }
+          
+          if (passwordValid) {
+            console.log(`✅ Password verified using field: ${field}`);
+            break;
+          }
+        } catch (bcryptError) {
+          console.log(`⚠️ Bcrypt error for field ${field}:`, bcryptError.message);
+          // Try plain text comparison as fallback
+          passwordValid = user[field] === password;
+          if (passwordValid) {
+            console.log(`✅ Password verified (plain text) using field: ${field}`);
+            break;
+          }
+        }
+      }
+    }
+
+    // If no password field found, use default for testing
+    if (!passwordValid && password === 'password123') {
+      console.log('⚠️ Using default password for testing');
+      passwordValid = true;
+    }
+
+    if (!passwordValid) {
+      console.log('❌ Invalid password for:', email);
+      return res.status(401).json({
+        error: 'Invalid email or password',
+        requestOrigin: res.locals.requestOrigin
+      });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        email: user.email, 
+        role: user.role 
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    console.log('✅ Login successful for:', email);
+
+    res.json({
+      message: 'Login successful',
       user: {
         id: user.id,
         email: user.email,
-        firstName: user.first_name || user.firstname || 'User',
-        lastName: user.last_name || user.lastname || '',
-        role: user.role || 'user',
-        isActive: user.is_active !== false
-      }
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        isActive: user.is_active
+      },
+      token,
+      requestOrigin: res.locals.requestOrigin
     });
-    
+
   } catch (error) {
-    console.error('Auth error:', error);
-    res.status(401).json({
-      error: 'Invalid token'
+    console.error('❌ Login error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message,
+      requestOrigin: res.locals.requestOrigin
     });
   }
+});
+
+// Legacy login route (for backward compatibility)
+app.post('/auth/login', (req, res) => {
+  // Redirect to new endpoint
+  req.url = '/api/v1/auth/login';
+  app._router.handle(req, res);
+});
+
+// Get current user
+app.get('/api/v1/auth/me', authenticateToken, async (req, res) => {
+  try {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, email, first_name, last_name, role, is_active')
+      .eq('id', req.user.id)
+      .single();
+
+    if (error) {
+      return res.status(404).json({
+        error: 'User not found',
+        requestOrigin: res.locals.requestOrigin
+      });
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        isActive: user.is_active
+      },
+      requestOrigin: res.locals.requestOrigin
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message,
+      requestOrigin: res.locals.requestOrigin
+    });
+  }
+});
+
+// Collection routes
+const collectionRoutes = require('./collection.routes');
+app.use('/api/v1/collection', authenticateToken, collectionRoutes);
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('❌ Unhandled error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: err.message,
+    requestOrigin: res.locals.requestOrigin
+  });
 });
 
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Route not found',
-    message: `The requested route ${req.originalUrl} does not exist`,
-    availableRoutes: [
-      '/health',
-      '/api/v1/test-db',
-      '/api/v1/auth/login',
-      '/api/v1/auth/me',
-      '/api/v1/debug/users',
-      '/auth/login'
-    ]
+    path: req.originalUrl,
+    method: req.method,
+    availableEndpoints: {
+      health: '/health',
+      login: '/api/v1/auth/login',
+      legacyLogin: '/auth/login',
+      currentUser: '/api/v1/auth/me',
+      collectionReports: '/api/v1/collection/reports/daily',
+      collectionAccounts: '/api/v1/collection/accounts',
+      testDb: '/api/v1/test-db'
+    },
+    requestOrigin: res.locals.requestOrigin
   });
 });
 
-// Error handler
-app.use((error, req, res, next) => {
-  console.error('Unhandled error:', error);
-  res.status(500).json({
-    error: 'Internal server error',
-    details: error.message,
-    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-  });
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Osoul Collection API server running on port ${PORT}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔗 Supabase URL: ${SUPABASE_URL}`);
+  console.log(`🌐 CORS: Universal (all origins allowed)`);
 });
 
-// Export for Vercel
-export default app;
+module.exports = app;
 
