@@ -1,0 +1,79 @@
+--- a/src/server.js
++++ b/src/server.js
+@@ -532,7 +532,7 @@
+ // Collection Accounts
+ app.get('/api/v1/collection/accounts', authenticateToken, async (req, res) => {
+   try {
+-    const { 
++    const {
+       page = 1, 
+       limit = 20, 
+       status, 
+@@ -545,11 +545,12 @@
+ 
+     console.log('📋 Fetching collection accounts:', { page, limit, status, search });
+ 
+-    // Build query
++    // Build query - Remove users join to fix relationship error
+     let query = supabase
+       .from('collection_cases')
+       .select(`
+         *,
++        assigned_to,
+         customers!inner(
+           customer_id,
+           first_name,
+@@ -565,8 +566,7 @@
+           monthly_installment,
+           dpd,
+           bucket
+-        ),
+-        users(first_name, last_name)
++        )
+       `, { count: 'exact' });
+ 
+     // Apply status filter
+@@ -608,12 +608,31 @@
+       });
+     }
+ 
++    // Fetch user data separately to avoid relationship error
++    const assignedUserIds = [...new Set(cases?.map(c => c.assigned_to).filter(Boolean))];
++    let usersMap = {};
++    
++    if (assignedUserIds.length > 0) {
++      const { data: usersData, error: usersError } = await supabase
++        .from('users')
++        .select('id, first_name, last_name')
++        .in('id', assignedUserIds);
++      
++      if (!usersError && usersData) {
++        usersMap = usersData.reduce((acc, user) => {
++          acc[user.id] = user;
++          return acc;
++        }, {});
++      }
++    }
+
+     // Transform data for frontend
+     const accounts = cases?.map(caseItem => {
+       const customer = caseItem.customers;
+       const account = caseItem.finance_accounts;
+-      const collector = caseItem.users;
+-
++      const assignedUser = usersMap[caseItem.assigned_to];
++      const collectorName = assignedUser ? 
++        `${assignedUser.first_name} ${assignedUser.last_name}` : 'Unassigned';
++      
+       return {
+         id: caseItem.case_id,
+         caseNumber: `CASE${String(caseItem.case_id).padStart(5, '0')}`,
+@@ -641,7 +660,7 @@
+           lastPaymentDate: caseItem.last_payment_date,
+           lastContactDate: caseItem.last_contact_date,
+           nextActionDate: caseItem.next_action_date,
+-          assignedCollector: collector ? `${collector.first_name} ${collector.last_name}` : 'Unassigned',
++          assignedCollector: collectorName,
+           createdDate: caseItem.created_date,
+           daysOverdue: calculateDaysOverdue(caseItem.last_payment_date)
+         }
