@@ -2,12 +2,12 @@
   "name": "osoul-backend",
   "version": "1.0.0",
   "description": "Osoul Collection Reporting System Backend API",
-  "type": "module",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "build": "echo 'No build step required for Node.js'",
+    "vercel-build": "echo 'No build step required'",
     "test": "echo 'No tests specified'"
   },
   "keywords": [
